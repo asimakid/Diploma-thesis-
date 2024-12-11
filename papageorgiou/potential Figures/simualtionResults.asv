@@ -1,0 +1,188 @@
+clc 
+clear all
+close all
+n = 10; % number of cars
+vMax = 35; %m/s
+a = 7.2;   %m
+f = 0.25;  %angle in rad
+p = 5.11;  %ecentrocity 
+L = 5.59;  %m
+e = 0.2;   %constant
+m1 = 0.5;  %constant
+m2 = 0.1;  %constant
+q = 3 *10^-3; %constant
+lamda = 25; %m
+A = 1; %constant
+c = 1.5;  %constant
+vStar = [30;25]; %m/s
+%Simulation time and initial conditions
+tChange = 40;
+Ts = 0:0.1:100;
+x0 = zeros(4*n,1);
+i = 1:n;
+x0(4*(i-1)+1) = [1,2,3,7,12,15,18,22,30,40]*10; %init xi
+x0(4*(i-1)+2) = [-6.5,+6.5,0,+5,-2,+3,-6.2,+5,-3,0]; %init yi
+x0(4*(i-1)+3) = [-0.01,+0.01,-0.05,+0.01,+0.01,-0.01,0.005,0.001,-0.001,0.01]/10; %init thetai
+x0(4*(i-1)+4) = [32,28,30,27,34,31,27,26,31,25]; %init vi
+opts = odeset('Maxstep',10^-2);%,'AbsTol',1,'RelTol',1);
+[T,X] = ode15s(@(t,x)carsSystem(t,x,n,A,m1,m2,p,L,lamda,q,c,vMax,vStar,f,e,a,tChange),Ts,x0,opts);
+xs = X(:,4*(i-1)+1); 
+ys = X(:,4*(i-1)+2);
+ts = X(:,4*(i-1)+3);
+vs = X(:,4*(i-1)+4);
+%%Velocities of cars
+figure 
+for j = 1:n
+    plot(T,vs(:,j))
+    hold on
+end
+title("Velocties of cars")
+xlabel("Time in sec")
+ylabel("Velocities in m/s")
+legend(["1","2","3","4","5","6","7","8","9","10"])
+%%Theta of cars
+figure 
+for j = 1:n 
+    plot(T,ts(:,j))
+    hold on
+end
+title("Orientation angles of cars")
+xlabel("Time in sec")
+ylabel("Theta in rad/s")
+legend(["1","2","3","4","5","6","7","8","9","10"])
+%%Acceleration and angular rates of cars
+us = zeros(size(X,1),10);
+Fs = zeros(size(X,1),10);
+for s = 1:length(T)
+    if T(s) > tChange
+        vStartemp = vStar(2);
+    else
+        vStartemp = vStar(1);
+    end   
+    for i = 1 : n 
+        xi = X(s,4*(i-1)+1);
+        yi = X(s,4*(i-1)+2);
+        thetai = X(s,4*(i-1)+3);
+        vi = X(s,4*(i-1)+4);
+        sumPotx = 0;
+        sumPoty = 0;
+        for j = 1 : n
+            if j ~= i
+                d = eclipseDistance(xi,yi,X(s,4*(j-1)+1),X(s,4*(j-1)+2),p); 
+                sumPotx = sumPotx + potentialVder(d,q,L,lamda)*((xi-X(s,4*(j-1)+1))/d);
+                sumPoty = sumPoty + potentialVder(d,q,L,lamda)*((yi-X(s,4*(j-1)+2))/d);    
+            end
+        end 
+        k = m2 + sumPotx/vStartemp + (vMax*cos(thetai)*ffunc(-sumPotx,e))/(vStartemp*(vMax*cos(thetai)-vStartemp));
+        % Inputs provided to the car
+        F = -(k/cos(thetai))*(vi*cos(thetai)-vStartemp) - sumPotx/cos(thetai);
+        u = -((vStartemp + A/(vi*(cos(thetai)-cos(f))^2))^-1)*(m1*vi*sin(thetai) + potentialUder(yi,a,c) + p*sumPoty + sin(thetai)*F);
+        us(s,i) = u;
+        Fs(s,i) = F;
+    end 
+end
+%Plots of accelerations and theta rates
+figure
+for j = 1:n
+    plot(T,us(:,j))
+    hold on
+end
+title("Angular rates of cars")
+xlabel("Time in sec")
+ylabel("Theta rates in rad/s^2")
+legend(["1","2","3","4","5","6","7","8","9","10"])
+%Acceleration plots
+figure
+for j = 1:n
+    plot(T,Fs(:,j))
+    hold on
+end
+title("Acceleration of cars")
+xlabel("Time in sec")
+ylabel("Accel in m/s^2")
+legend(["1","2","3","4","5","6","7","8","9","10"])
+figure
+plot(T,max(abs(Fs),[],2))
+title("Norm of Acceleration of cars")
+xlabel("Time in sec")
+ylabel("Accel in m/s^2") 
+figure
+plot(T,max(abs(us),[],2))
+title("Norm of rotation rate of cars")
+%Calculating lyap func
+lyapValues = zeros(size(T));
+for j = 1:size(T,1)
+    lyapValues(j) = lyapFunc(X(j,:),n,f,vStar,A,q,L,lamda,p,a,c,tChange,T(j));
+end
+figure 
+plot(T,lyapValues)
+title("Lyap func values")
+xlabel("Time in sec")
+figure
+subplot(2,1,1)
+plot(T,X(:,4*(4-1)+1))
+hold on
+plot(T,X(:,4*(7-1)+1))
+legend("X4","X7")
+subplot(2,1,2)
+plot(T,X(:,4*(4-1)+2))
+hold on
+plot(T,X(:,4*(7-1)+2))
+%Calculate the eclipse distance between cars
+distances = [];
+figure
+for t = 1:length(T)
+    tempmin = 10000;
+    for j = 1:n 
+        for k = j + 1 : 10
+            dist = eclipseDistance(X(t,4*(j-1)+1),X(t,4*(j-1)+2),X(t,4*(k-1)+1),X(t,4*(k-1)+2),p);
+            if tempmin > dist
+                tempmin = dist;
+            end
+        end
+    end    
+    distances = [distances;tempmin];
+end
+plot(T,distances)
+title("Minimum eclipse distance between cars")
+ylabel("Time in sec")
+maxthetas = zeros(size(T));
+maxyidot = zeros(size(T));
+%Calculating y dot 
+for t = 1 : length(T)
+    vis = X(t,4*(i-1)+4);
+    thetas = X(t,4*(i-1)+3);
+    maxthetas(t) = max(abs(thetas));
+    maxyidot(t) = max(abs(vis.*sin(thetas)));
+end
+figure
+plot(T,maxthetas)
+title("Linf norm of thetas")
+xlabel("Time in sec")
+figure
+plot(T,maxyidot)
+title("Linf norm of yi dot")
+xlabel("Time in sec")
+%Plot of the trajectories of cars
+colors = ["r","g","b","c","m","y","k"];
+figure
+plot(0:1:1000,a*(sqrt(c-1)/sqrt(c))*ones(size(0:1:1000)))
+hold on
+plot(0:1:1000,-a*(sqrt(c-1)/sqrt(c))*ones(size(0:1:1000)))
+hold on
+curves = [];
+for j = 1:n 
+   curves = [curves,animatedline('Color',colors(mod(j,7)+1))];
+end
+axis([0,1000,-7.2,7.2])
+for t = 1:length(T)
+    for j = 1:n
+        addpoints(curves(j),X(t,4*(j-1)+1),X(t,4*(j-1)+2));
+        drawnow
+        hold on
+    end
+end
+title("Trajectories of cars")
+xlabel("X position")
+ylabel("Y position")
+legend(["1","2","3","4","5","6","7","8","9","10"])
